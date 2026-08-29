@@ -7,3 +7,4 @@ seaborn
 flwr
 imbalanced-learn
 streamlit
+kagglehub

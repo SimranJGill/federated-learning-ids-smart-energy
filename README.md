@@ -174,7 +174,13 @@ pip install -r requirements.txt
 
 ### 4. Download datasets
 
-Place your downloaded dataset files at:
+You can automatically download the datasets programmatically directly from Kaggle:
+```bash
+python download_datasets.py
+```
+*Note: The script will check if you are already authenticated with Kaggle. If not, it will prompt you interactively in the terminal for your Kaggle Username and API Key (you can get these from your Kaggle Account profile).*
+
+Alternatively, you can manually place your downloaded dataset files at:
 ```
 data/raw/CICIoT2023/wataiData/csv/CICIoT2023/   ← all .csv files here
 data/raw/EdgeIIoTset/Edge-IIoTset dataset/Selected dataset for ML and DL/DNN-EdgeIIoT-dataset.csv
