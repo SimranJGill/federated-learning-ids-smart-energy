@@ -11,7 +11,7 @@ EDGE_PATH   = "data/raw/EdgeIIoTset/Edge-IIoTset dataset/Selected dataset for ML
 SAVE_DIR    = "data/processed/"
 os.makedirs(SAVE_DIR, exist_ok=True)
 
-ROWS_PER_CIC_FILE = 8000   # rows sampled per CICIoT CSV file
+ROWS_PER_CIC_FILE = 20000   # rows sampled per CICIoT CSV file
 EDGE_ROWS         = 80000  # rows sampled from EdgeIIoTset
 
 # ─── CICIoT2023 has 46 numeric features ──────────────────────────────

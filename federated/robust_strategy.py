@@ -6,6 +6,8 @@ from flwr.common import (
 )
 from typing import List, Tuple, Optional, Dict, Union
 from functools import reduce
+import time
+import psutil
 
 
 # ── Helper: flatten / unflatten weights ──────────────────────────────
@@ -33,12 +35,19 @@ class FedMedian(fl.server.strategy.FedAvg):
     from malicious or compromised IoT clients.
     """
 
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.latest_parameters = None
+        self.round_times = []
+        self.peak_mem_mb = 0.0
+
     def aggregate_fit(
         self,
         server_round: int,
         results: List[Tuple[fl.server.client_proxy.ClientProxy, FitRes]],
         failures,
     ) -> Tuple[Optional[Parameters], Dict[str, Scalar]]:
+        round_start = time.time()
 
         if not results:
             return None, {}
@@ -63,6 +72,11 @@ class FedMedian(fl.server.strategy.FedAvg):
         parameters_aggregated = ndarrays_to_parameters(median_weights)
         metrics_aggregated    = {}
         self.latest_parameters = parameters_aggregated
+        self.round_times.append(time.time() - round_start)
+        self.peak_mem_mb = max(
+            self.peak_mem_mb,
+            psutil.Process().memory_info().rss / (1024 ** 2)
+        )
         return parameters_aggregated, metrics_aggregated
 
 
@@ -82,6 +96,9 @@ class FedKrum(fl.server.strategy.FedAvg):
     def __init__(self, num_byzantine: int = 1, **kwargs):
         super().__init__(**kwargs)
         self.num_byzantine = num_byzantine
+        self.latest_parameters = None
+        self.round_times = []
+        self.peak_mem_mb = 0.0
 
     def _krum_scores(self,
                      flat_weights: List[np.ndarray],
@@ -111,6 +128,7 @@ class FedKrum(fl.server.strategy.FedAvg):
         results: List[Tuple[fl.server.client_proxy.ClientProxy, FitRes]],
         failures,
     ) -> Tuple[Optional[Parameters], Dict[str, Scalar]]:
+        round_start = time.time()
 
         if not results:
             return None, {}
@@ -133,6 +151,11 @@ class FedKrum(fl.server.strategy.FedAvg):
         selected_weights = weights_list[best]
         parameters_aggregated = ndarrays_to_parameters(selected_weights)
         self.latest_parameters = parameters_aggregated
+        self.round_times.append(time.time() - round_start)
+        self.peak_mem_mb = max(
+            self.peak_mem_mb,
+            psutil.Process().memory_info().rss / (1024 ** 2)
+        )
         return parameters_aggregated, {}
 
 
@@ -151,6 +174,9 @@ class FedTrimmedMean(fl.server.strategy.FedAvg):
     def __init__(self, beta: float = 0.1, **kwargs):
         super().__init__(**kwargs)
         self.beta = beta  # fraction to trim from each end
+        self.latest_parameters = None
+        self.round_times = []
+        self.peak_mem_mb = 0.0
 
     def aggregate_fit(
         self,
@@ -158,6 +184,7 @@ class FedTrimmedMean(fl.server.strategy.FedAvg):
         results: List[Tuple[fl.server.client_proxy.ClientProxy, FitRes]],
         failures,
     ) -> Tuple[Optional[Parameters], Dict[str, Scalar]]:
+        round_start = time.time()
 
         if not results:
             return None, {}
@@ -183,7 +210,35 @@ class FedTrimmedMean(fl.server.strategy.FedAvg):
 
         parameters_aggregated = ndarrays_to_parameters(trimmed_weights)
         self.latest_parameters = parameters_aggregated
+        self.round_times.append(time.time() - round_start)
+        self.peak_mem_mb = max(
+            self.peak_mem_mb,
+            psutil.Process().memory_info().rss / (1024 ** 2)
+        )
         return parameters_aggregated, {}
+
+
+class TrackedFedAvg(fl.server.strategy.FedAvg):
+    """Plain FedAvg, but remembers final weights + per-round timing/memory
+    so the calling script can extract them after start_simulation() finishes."""
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.latest_parameters = None
+        self.round_times = []
+        self.peak_mem_mb = 0.0
+
+    def aggregate_fit(self, server_round, results, failures):
+        round_start = time.time()
+        aggregated_parameters, metrics = super().aggregate_fit(
+            server_round, results, failures)
+        self.latest_parameters = aggregated_parameters
+        self.round_times.append(time.time() - round_start)
+        self.peak_mem_mb = max(
+            self.peak_mem_mb,
+            psutil.Process().memory_info().rss / (1024 ** 2)
+        )
+        return aggregated_parameters, metrics
 
 
 # ══════════════════════════════════════════════════════════════════════

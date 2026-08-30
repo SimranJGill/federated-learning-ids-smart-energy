@@ -32,7 +32,7 @@ def build_model(window_size, n_features, num_classes, dropout_rate=0.3):
 
     # ── Attention ─────────────────────────────────────────────────
     attn = layers.Dense(1, activation="tanh")(bilstm)
-    attn = layers.Softmax(axis=1)(attn)
+    attn = layers.Softmax(axis=1, name="attention_weights")(attn)
     attn = layers.Multiply()([bilstm, attn])
     bilstm_out = layers.GlobalAveragePooling1D()(attn)
 

@@ -1,6 +1,29 @@
 import sys; sys.stdout.reconfigure(line_buffering=True)
 import logging
 logging.basicConfig(level=logging.INFO)
+
+import os
+import time
+import pickle
+import csv
+import numpy as np
+import flwr as fl
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import f1_score, accuracy_score
+
+from model.architecture import build_model
+from federated.robust_strategy import TrackedFedAvg
+from federated.client import make_client_fn
+
+# ── Fixed Config & Sharding Helper ────────────────────────────────────
+NUM_CLIENTS = 5
+NUM_ROUNDS = 10
+WINDOW_SIZE = 20
+
+def partition_data(X, y, n=5):
+    idx = np.array_split(np.arange(len(X)), n)
+    return [(X[i], y[i]) for i in idx]
+
 def run():
     print("📂 Loading sequence data...")
 
@@ -27,7 +50,7 @@ def run():
     for cls_idx in range(num_classes):
         count = np.sum(y_all == cls_idx)
         cls_name = le.classes_[cls_idx]
-        print(f"   {cls_name:20s}: {count} samples", 
+        print(f"   {cls_name:20s}: {count} samples",
               "⚠️ REMOVED" if count < 10 else "✅")
         if count >= 10:
             keep_mask |= (y_all == cls_idx)
@@ -61,8 +84,8 @@ def run():
     print(f"\n📊 Partitioning across {NUM_CLIENTS} clients...")
     shards = partition_data(X_train, y_train, NUM_CLIENTS)
 
-    # ── FedAvg strategy ───────────────────────────────────────────
-    strategy = fl.server.strategy.FedAvg(
+    # ── FedAvg strategy (TRACKED so we can recover real weights + timing) ──
+    strategy = TrackedFedAvg(
         fraction_fit=1.0,
         fraction_evaluate=1.0,
         min_fit_clients=NUM_CLIENTS,
@@ -85,12 +108,49 @@ def run():
         client_resources={"num_cpus": 2, "num_gpus": 0.0},
     )
 
-    # ── Save final model ──────────────────────────────────────────
+    # ── Recover the REAL trained weights ────────────────────────────
     print("\n💾 Saving final model...")
-    n_features  = X_all.shape[2]
+    n_features = X_all.shape[2]
+    final_ndarrays = fl.common.parameters_to_ndarrays(strategy.latest_parameters)
+
     final_model = build_model(WINDOW_SIZE, n_features, num_classes)
+    final_model.set_weights(final_ndarrays)
     final_model.save("saved_models/fl_model.h5")
-    print("✅ Model saved → saved_models/fl_model.h5")
+    print("✅ Model saved → saved_models/fl_model.h5 (real trained weights)")
+
+    # ── Real evaluation on the held-out test set ─────────────────────
+    print("\n📊 Evaluating on test set...")
+    y_pred = np.argmax(final_model.predict(X_test, verbose=0), axis=1)
+    acc = accuracy_score(y_test, y_pred)
+    macro_f1 = f1_score(y_test, y_pred, average="macro")
+    print(f"   Test Accuracy: {acc:.4f}")
+    print(f"   Macro F1:      {macro_f1:.4f}")
+
+    # ── Overhead metrics (for the paper's Section III system-overhead table) ──
+    model_size_mb = sum(w.nbytes for w in final_ndarrays) / (1024 ** 2)
+    comm_cost_per_round_mb = model_size_mb * NUM_CLIENTS * 2  # upload + download
+    total_comm_cost_mb = comm_cost_per_round_mb * NUM_ROUNDS
+    avg_round_time_s = sum(strategy.round_times) / len(strategy.round_times)
+
+    print(f"\n📊 Overhead metrics:")
+    print(f"   Model size: {model_size_mb:.2f} MB")
+    print(f"   Comm. cost/round: {comm_cost_per_round_mb:.2f} MB")
+    print(f"   Total comm. cost ({NUM_ROUNDS} rounds): {total_comm_cost_mb:.2f} MB")
+    print(f"   Avg. round time: {avg_round_time_s:.2f} s")
+    print(f"   Peak memory: {strategy.peak_mem_mb:.2f} MB")
+
+    # ── Save everything to CSV so it's easy to pull into the paper ─────
+    with open("saved_models/federated_run_results.csv", "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["metric", "value"])
+        writer.writerow(["accuracy", round(acc * 100, 2)])
+        writer.writerow(["macro_f1", round(macro_f1 * 100, 2)])
+        writer.writerow(["model_size_mb", round(model_size_mb, 2)])
+        writer.writerow(["comm_cost_per_round_mb", round(comm_cost_per_round_mb, 2)])
+        writer.writerow(["total_comm_cost_mb", round(total_comm_cost_mb, 2)])
+        writer.writerow(["avg_round_time_s", round(avg_round_time_s, 2)])
+        writer.writerow(["peak_mem_mb", round(strategy.peak_mem_mb, 2)])
+    print("✅ Results saved → saved_models/federated_run_results.csv")
 
     # ── Print training history ────────────────────────────────────
     print("\n📈 Training History:")
@@ -99,3 +159,6 @@ def run():
         print(f"   Round {rnd:2d} → loss: {loss:.4f}")
 
     return history
+
+if __name__ == "__main__":
+    run()
