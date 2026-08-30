@@ -62,6 +62,7 @@ class FedMedian(fl.server.strategy.FedAvg):
 
         parameters_aggregated = ndarrays_to_parameters(median_weights)
         metrics_aggregated    = {}
+        self.latest_parameters = parameters_aggregated
         return parameters_aggregated, metrics_aggregated
 
 
@@ -130,7 +131,9 @@ class FedKrum(fl.server.strategy.FedAvg):
 
         # Use the best client's weights as global update
         selected_weights = weights_list[best]
-        return ndarrays_to_parameters(selected_weights), {}
+        parameters_aggregated = ndarrays_to_parameters(selected_weights)
+        self.latest_parameters = parameters_aggregated
+        return parameters_aggregated, {}
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -178,7 +181,9 @@ class FedTrimmedMean(fl.server.strategy.FedAvg):
             trimmed  = sorted_w[trim_k : n - trim_k]
             trimmed_weights.append(np.mean(trimmed, axis=0))
 
-        return ndarrays_to_parameters(trimmed_weights), {}
+        parameters_aggregated = ndarrays_to_parameters(trimmed_weights)
+        self.latest_parameters = parameters_aggregated
+        return parameters_aggregated, {}
 
 
 # ══════════════════════════════════════════════════════════════════════
@@ -186,7 +191,7 @@ class FedTrimmedMean(fl.server.strategy.FedAvg):
 # Makes one client send corrupted random weights
 # Use this to test robustness of your strategies
 # ══════════════════════════════════════════════════════════════════════
-class PoisonedClient:
+class PoisonedClient(fl.client.NumPyClient):
     """
     Wraps a normal client and injects poisoned weights.
     Use to simulate a Byzantine/compromised IoT device.

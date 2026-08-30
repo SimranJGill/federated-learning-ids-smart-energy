@@ -10,7 +10,7 @@ class EnergyIoTClient(fl.client.NumPyClient):
         self.num_classes = num_classes
         self.X_train, self.X_val, self.y_train, self.y_val = \
             train_test_split(X, y, test_size=0.2,
-                             random_state=client_id, stratify=y)
+                             random_state=client_id)
         window_size = X.shape[1]
         n_features  = X.shape[2]
         self.model  = build_model(window_size, n_features, num_classes)
