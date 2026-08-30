@@ -20,6 +20,7 @@ from federated.robust_strategy import (
 from blockchain_ledger import FLBlockchain
 
 # ── Fixed config ─────────────────────────────────────────────────────
+# ── Fixed config ─────────────────────────────────────────────────────
 WINDOW_SIZE = 20
 NUM_ROUNDS = 10
 NUM_CLIENTS = 5
@@ -137,7 +138,7 @@ def run_experiment(strategy_name, num_poisoned, poison_scale, blockchain):
         "num_poisoned": num_poisoned,
         "poison_scale": poison_scale,
         "accuracy": round(acc * 100, 2),
-        "macro_f1": round(f1 * 100, 2),
+        "macro_f1": round(macro_f1 * 100, 2),
         "model_size_mb": round(model_size_mb, 2),
         "comm_cost_per_round_mb": round(comm_cost_per_round_mb, 2),
         "total_comm_cost_mb": round(total_comm_cost_mb, 2),

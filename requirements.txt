@@ -8,3 +8,4 @@ flwr[simulation]
 imbalanced-learn
 streamlit
 kagglehub
+psutil

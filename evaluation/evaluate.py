@@ -17,7 +17,7 @@ from sklearn.metrics import (
 )
 
 print("Loading model and data...")
-model       = tf.keras.models.load_model("saved_models/best_model.h5")
+model       = tf.keras.models.load_model("saved_models/fl_model.h5")
 X_test      = np.load("saved_models/X_test.npy")
 y_test      = np.load("saved_models/y_test.npy")
 class_names = np.load("saved_models/class_names.npy", allow_pickle=True)
