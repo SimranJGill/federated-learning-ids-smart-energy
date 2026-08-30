@@ -235,10 +235,11 @@ with st.sidebar:
 
     st.divider()
     now = datetime.datetime.now().strftime("%H:%M:%S")
+    _sidebar_acc = f"{results['accuracy']*100:.2f}% on test set" if results else "not evaluated yet"
     st.markdown(f"""
     <div style="font-size:12px;color:#999;line-height:1.8">
       <b style="color:#666">Model</b><br>CNN + BiLSTM + Attention<br><br>
-      <b style="color:#666">Accuracy</b><br>94.65% on test set<br><br>
+      <b style="color:#666">Accuracy</b><br>{_sidebar_acc}<br><br>
       <b style="color:#666">Classes</b><br>{' · '.join(class_names)}<br><br>
       <b style="color:#666">System time</b><br>{now}
     </div>""", unsafe_allow_html=True)
@@ -262,11 +263,19 @@ if "Home" in page:
     </div>""", unsafe_allow_html=True)
     st.divider()
 
-    c1,c2,c3,c4 = st.columns(4)
-    with c1: card("Test Accuracy","94.65%","on 10,774 test samples","#E8F5E9","🎯")
-    with c2: card("Macro F1","68.40%","avg across all classes","#EDE7F6","📊")
-    with c3: card("Normal F1","100.0%","perfect detection","#E3F2FD","✅")
-    with c4: card("DDoS F1","77.8%","strong attack detection","#FFF8E1","🔴")
+    if results is not None:
+        f1s = dict(zip(results["classes"], results["per_f1"]))
+        c1,c2,c3,c4 = st.columns(4)
+        with c1: card("Test Accuracy", f"{results['accuracy']*100:.2f}%",
+                      f"on {results['total_samples']:,} test samples", "#E8F5E9", "🎯")
+        with c2: card("Macro F1", f"{results['macro_f1']*100:.2f}%",
+                      "avg across all classes", "#EDE7F6", "📊")
+        with c3: card("Normal F1", f"{f1s.get('Normal',0)*100:.1f}%",
+                      "detection rate", "#E3F2FD", "✅")
+        with c4: card("DDoS F1", f"{f1s.get('DDoS',0)*100:.1f}%",
+                      "attack detection", "#FFF8E1", "🔴")
+    else:
+        st.warning("⚠️ No evaluation results found — run `evaluation/evaluate.py` first.")
 
     st.markdown("<br>", unsafe_allow_html=True)
     col1, col2, col3 = st.columns([1,1,1])
@@ -580,8 +589,12 @@ elif "Evaluation" in page:
             "Support":   [f"{int(s):,}" for s in supports],
         }
         st.dataframe(pd.DataFrame(per_data),use_container_width=True,hide_index=True)
-        info_box("💡 <b>DoS has 0% F1</b> because it had only 29 test samples — too few to learn from. "
-                 "Increasing <code>ROWS_PER_CIC_FILE</code> in preprocess.py will fix this.")
+        low_f1 = [c for c, f1v in zip(results["classes"], results["per_f1"]) if f1v < 0.5]
+        if low_f1:
+            info_box(f"💡 <b>{', '.join(low_f1)}</b> "
+                     f"{'has' if len(low_f1)==1 else 'have'} low F1 — check support above. "
+                     f"If it's small relative to other classes, increasing "
+                     f"<code>ROWS_PER_CIC_FILE</code> and re-running the pipeline may help.")
 
     with tab2:
         col1,col2 = st.columns([1,1])
@@ -664,6 +677,10 @@ elif "Training" in page:
     page_header("📈 Training History",
                 "How the model learned over 8 epochs with early stopping")
 
+    st.warning("⚠️ **ILLUSTRATIVE DATA — NOT FROM A REAL TRAINING RUN.** "
+               "These numbers are placeholder values, not logged training history. "
+               "Do not cite these in the paper.")
+
     epochs     = [1,2,3,4,5,6,7,8]
     train_acc  = [0.9106,0.9412,0.9439,0.9472,0.9477,0.9497,0.9501,0.9545]
     val_acc    = [0.9429,0.9355,0.9385,0.9445,0.9466,0.9464,0.9378,0.9462]
@@ -726,6 +743,11 @@ elif "Training" in page:
 elif "Baseline" in page:
     page_header("🆚 Baseline Model Comparison",
                 "Our CNN+BiLSTM+Attention vs simpler architectures")
+
+    st.warning("⚠️ **ILLUSTRATIVE DATA — NOT FROM REAL TRAINING RUNS.** "
+               "These are estimated placeholders. If your paper's Table IV cites "
+               "these, verify against real CNN-only/LSTM-only/CNN+LSTM training "
+               "runs before submission.")
 
     st.markdown("""
     <div style="background:#EDE7F6;border-radius:16px;padding:16px 20px;
@@ -880,6 +902,9 @@ elif "Explainability" in page:
     with tab2:
         section("📊","Top Features by Importance",
                 "Which network traffic features contribute most to detection")
+        st.warning("⚠️ **ILLUSTRATIVE DATA — NOT COMPUTED FROM THE MODEL.** "
+                   "These importance scores are hardcoded, not derived via a real "
+                   "method (permutation importance, SHAP, gradient-based attribution).")
         features_cic = [
             "flow_duration","Rate","Srate","Drate","syn_flag_number",
             "ack_flag_number","psh_flag_number","TCP","UDP","ICMP",
@@ -963,6 +988,10 @@ elif "Explainability" in page:
 elif "Map" in page:
     page_header("🗺️ Federation Map",
                 "How 5 smart energy clients collaborate without sharing raw data")
+
+    st.warning("⚠️ **ILLUSTRATIVE DATA** — per-client sample counts, per-client "
+               "accuracy, and the convergence chart below are placeholder values, "
+               "not logged from a real federated training run.")
 
     st.markdown("""
     <div style="background:white;border-radius:20px;padding:2rem;
@@ -1060,6 +1089,11 @@ elif "Encyclopedia" in page:
     page_header("🛡️ Attack Encyclopedia",
                 "Visual reference guide to all attack types detected by the IDS")
 
+    _f1_lookup = {}
+    if results is not None:
+        _f1_lookup = dict(zip(results["classes"],
+                               [f"{v*100:.1f}%" for v in results["per_f1"]]))
+
     attacks_info = [
         {
             "name":"DDoS",
@@ -1067,7 +1101,7 @@ elif "Encyclopedia" in page:
             "icon":"🌊",
             "color":"#BBDEFB",
             "severity":"🔴 Critical",
-            "f1":"77.8%",
+            "f1": _f1_lookup.get("DDoS", "N/A"),
             "desc":"Overwhelms a target system with massive traffic from multiple sources, "
                    "making services unavailable to legitimate users.",
             "smart_energy":"Can disable smart grid control systems, EV charging networks, "
@@ -1082,7 +1116,7 @@ elif "Encyclopedia" in page:
             "icon":"🚫",
             "color":"#FADADD",
             "severity":"🟠 High",
-            "f1":"0.0%*",
+            "f1": _f1_lookup.get("DoS", "N/A"),
             "desc":"A single-source attack that exhausts a target's resources — "
                    "CPU, memory, or bandwidth — to deny legitimate access.",
             "smart_energy":"Can crash individual smart meters or SCADA systems "
@@ -1097,7 +1131,7 @@ elif "Encyclopedia" in page:
             "icon":"✅",
             "color":"#C8E6C9",
             "severity":"✅ Safe",
-            "f1":"100.0%",
+            "f1": _f1_lookup.get("Normal", "N/A"),
             "desc":"Legitimate network traffic from authorized devices — sensor readings, "
                    "control commands, firmware updates, and routine communication.",
             "smart_energy":"Includes smart meter data uploads, EV charging session "
@@ -1112,7 +1146,7 @@ elif "Encyclopedia" in page:
             "icon":"⚠️",
             "color":"#FFE0B2",
             "severity":"🟡 Medium",
-            "f1":"95.8%",
+            "f1": _f1_lookup.get("Other", "N/A"),
             "desc":"A broad category covering Botnet, Brute Force, Reconnaissance, "
                    "Port Scan, Spoofing, Injection, and Malware attacks.",
             "smart_energy":"Botnets can weaponize IoT devices; credential attacks "
@@ -1287,25 +1321,34 @@ elif "About" in page:
         </div>""", unsafe_allow_html=True)
 
     with col2:
-        st.markdown("""
+        if results is not None:
+            f1s = dict(zip(results["classes"], results["per_f1"]))
+            _acc_str   = f"{results['accuracy']*100:.2f}%"
+            _norm_str  = f"{f1s.get('Normal',0)*100:.1f}%"
+            _ddos_str  = f"{f1s.get('DDoS',0)*100:.1f}%"
+            _other_str = f"{f1s.get('Other',0)*100:.1f}%"
+        else:
+            _acc_str = _norm_str = _ddos_str = _other_str = "N/A"
+
+        st.markdown(f"""
         <div style="background:#E8F5E9;border-radius:20px;padding:1.5rem;
                     border:1px solid #C8E6C9;margin-bottom:1rem">
           <p style="font-weight:600;font-size:16px;margin:0 0 1rem">🏆 Results</p>
           <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
             <div style="background:white;border-radius:10px;padding:14px;text-align:center">
-              <p style="margin:0;font-size:26px;font-weight:700;color:#3D3D3D">94.65%</p>
+              <p style="margin:0;font-size:26px;font-weight:700;color:#3D3D3D">{_acc_str}</p>
               <p style="margin:4px 0 0;font-size:11px;color:#888">Test Accuracy</p>
             </div>
             <div style="background:white;border-radius:10px;padding:14px;text-align:center">
-              <p style="margin:0;font-size:26px;font-weight:700;color:#3D3D3D">100%</p>
+              <p style="margin:0;font-size:26px;font-weight:700;color:#3D3D3D">{_norm_str}</p>
               <p style="margin:4px 0 0;font-size:11px;color:#888">Normal F1</p>
             </div>
             <div style="background:white;border-radius:10px;padding:14px;text-align:center">
-              <p style="margin:0;font-size:26px;font-weight:700;color:#3D3D3D">77.8%</p>
+              <p style="margin:0;font-size:26px;font-weight:700;color:#3D3D3D">{_ddos_str}</p>
               <p style="margin:4px 0 0;font-size:11px;color:#888">DDoS F1</p>
             </div>
             <div style="background:white;border-radius:10px;padding:14px;text-align:center">
-              <p style="margin:0;font-size:26px;font-weight:700;color:#3D3D3D">95.8%</p>
+              <p style="margin:0;font-size:26px;font-weight:700;color:#3D3D3D">{_other_str}</p>
               <p style="margin:4px 0 0;font-size:11px;color:#888">Other F1</p>
             </div>
           </div>
