@@ -164,7 +164,7 @@ def info_box(text, color="#FFF8E1", border="#FFD54F"):
 @st.cache_resource
 def load_model():
     try:
-        m = tf.keras.models.load_model("saved_models/best_model.h5")
+        m = tf.keras.models.load_model("saved_models/fl_model.h5")
         cn = np.load("saved_models/class_names.npy", allow_pickle=True)
         return m, [str(c) for c in cn]
     except Exception as e:
@@ -553,23 +553,31 @@ elif "Evaluation" in page:
     page_header("📊 Model Evaluation Results",
                 "Complete performance analysis on the held-out test set")
 
+    if results is None:
+        st.error("evaluation/results.json not found — run evaluation/evaluate.py first.")
+        st.stop()
+
     c1,c2,c3,c4 = st.columns(4)
-    with c1: card("Accuracy","94.65%","10,774 test samples","#E8F5E9","🎯")
-    with c2: card("Macro F1","68.40%","avg across classes","#EDE7F6","📊")
-    with c3: card("Precision","68.97%","macro avg","#E3F2FD","🔬")
-    with c4: card("Recall","67.90%","macro avg","#FFF8E1","📡")
+    with c1: card("Accuracy", f"{results['accuracy']*100:.2f}%",
+                  f"{results['total_samples']:,} test samples", "#E8F5E9", "🎯")
+    with c2: card("Macro F1", f"{results['macro_f1']*100:.2f}%",
+                  "avg across classes", "#EDE7F6", "📊")
+    with c3: card("Precision", f"{results['precision']*100:.2f}%",
+                  "macro avg", "#E3F2FD", "🔬")
+    with c4: card("Recall", f"{results['recall']*100:.2f}%",
+                  "macro avg", "#FFF8E1", "📡")
 
     st.markdown("<br>",unsafe_allow_html=True)
     tab1,tab2,tab3,tab4 = st.tabs(["📋 Per-class","🗺️ Confusion Matrix","📈 ROC Curves","📊 Charts"])
 
     with tab1:
+        supports = np.array(results["cm"]).sum(axis=1)
         per_data = {
-            "Class":["DDoS","DoS","Normal","Other"],
-            "Precision":["81.0%","0.0%","100.0%","94.9%"],
-            "Recall":["74.9%","0.0%","100.0%","96.8%"],
-            "F1 Score":["77.8%","0.0%","100.0%","95.8%"],
-            "Support":["1,298","29","2,775","6,672"],
-            "Status":["✅ Good","⚠️ Few samples","🌟 Perfect","✅ Excellent"],
+            "Class": results["classes"],
+            "Precision": [f"{v*100:.1f}%" for v in results["per_p"]],
+            "Recall":    [f"{v*100:.1f}%" for v in results["per_r"]],
+            "F1 Score":  [f"{v*100:.1f}%" for v in results["per_f1"]],
+            "Support":   [f"{int(s):,}" for s in supports],
         }
         st.dataframe(pd.DataFrame(per_data),use_container_width=True,hide_index=True)
         info_box("💡 <b>DoS has 0% F1</b> because it had only 29 test samples — too few to learn from. "
@@ -578,24 +586,14 @@ elif "Evaluation" in page:
     with tab2:
         col1,col2 = st.columns([1,1])
         with col1:
-            try:
-                st.image("evaluation/confusion_matrix.png",use_container_width=True)
-            except:
-                if X_test is not None and model is not None:
-                    with st.spinner("Generating confusion matrix..."):
-                        sample = X_test[:500]
-                        y_pred = np.argmax(model.predict(sample,verbose=0),axis=1)
-                        y_true = y_test[:500]
-                        cm = confusion_matrix(y_true,y_pred)
-                    fig,ax = plt.subplots(figsize=(6,5))
-                    sns.heatmap(cm,annot=True,fmt="d",cmap="PuBu",
-                                xticklabels=class_names,yticklabels=class_names,ax=ax)
-                    ax.set_title("Confusion Matrix",pad=12)
-                    ax.set_ylabel("True"); ax.set_xlabel("Predicted")
-                    plt.tight_layout()
-                    st.pyplot(fig); plt.close()
-                else:
-                    st.info("Run evaluate.py to generate confusion matrix")
+            cm = np.array(results["cm"])
+            fig, ax = plt.subplots(figsize=(6,5))
+            sns.heatmap(cm, annot=True, fmt="d", cmap="PuBu",
+                        xticklabels=results["classes"], yticklabels=results["classes"], ax=ax)
+            ax.set_title("Confusion Matrix", pad=12)
+            ax.set_ylabel("True"); ax.set_xlabel("Predicted")
+            plt.tight_layout()
+            st.pyplot(fig); plt.close()
         with col2:
             section("📖","Reading the Matrix")
             st.markdown("""
@@ -649,15 +647,14 @@ elif "Evaluation" in page:
         col1,col2 = st.columns(2)
         with col1:
             section("📊","F1 Score by Class")
-            f1_df = pd.DataFrame({"F1":[0.778,0.0,1.0,0.958]},
-                                  index=class_names)
-            st.bar_chart(f1_df,color="#B39DDB")
+            f1_df = pd.DataFrame({"F1": results["per_f1"]}, index=results["classes"])
+            st.bar_chart(f1_df, color="#B39DDB")
         with col2:
             section("📈","Precision vs Recall")
             pr_df = pd.DataFrame({
-                "Precision":[0.810,0.000,1.000,0.949],
-                "Recall":   [0.749,0.000,1.000,0.968]
-            }, index=class_names)
+                "Precision": results["per_p"],
+                "Recall":    results["per_r"]
+            }, index=results["classes"])
             st.bar_chart(pr_df)
 
 # ══════════════════════════════════════════════════════════════════════
@@ -827,21 +824,13 @@ elif "Explainability" in page:
             seq = X_test[sample_idx:sample_idx+1]
 
             try:
-                attn_layer = next(
-                    (l for l in model.layers if "dense" in l.name and l.output.shape[-1]==1),
-                    None)
-                if attn_layer:
-                    attn_model = tf.keras.Model(
-                        inputs=model.input,
-                        outputs=[model.output, attn_layer.output])
-                    pred_out, attn_out = attn_model.predict(seq,verbose=0)
-                    attn_weights = attn_out[0,:,0]
-                else:
-                    attn_weights = np.random.dirichlet(np.ones(WINDOW))
-                    pred_out = model.predict(seq,verbose=0)
-            except:
-                attn_weights = np.random.dirichlet(np.ones(WINDOW))
-                pred_out = model.predict(seq,verbose=0)
+                attn_layer = model.get_layer("attention_weights")
+                attn_model = tf.keras.Model(inputs=model.input, outputs=[model.output, attn_layer.output])
+                pred_out, attn_out = attn_model.predict(seq, verbose=0)
+                attn_weights = attn_out[0,:,0]
+            except ValueError:
+                st.warning("⚠️ 'attention_weights' layer not found — is fl_model.h5 up to date with the current architecture.py?")
+                st.stop()
 
             pred_class = class_names[np.argmax(pred_out[0])]
             pred_conf  = float(np.max(pred_out[0]))
